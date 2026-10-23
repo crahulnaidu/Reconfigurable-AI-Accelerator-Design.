@@ -26,44 +26,63 @@ module tb_processing_element;
         .zero_skip_count(zero_skip_count)
     );
 
-    // Clock Generation (100 MHz)
-    always #5 clk = ~clk;
+    // 100 MHz clock
+initial clk = 0;
+always #5 clk = ~clk;
 
-    initial begin
-        clk            = 0;
-        rst_n          = 0;
-        precision_mode = 2'b01; // Default INT8 Mode
-        acc_clear      = 0;
-        acc_enable     = 0;
-        operand_a      = 16'h0000;
-        operand_b      = 16'h0000;
+initial begin
+    rst_n          = 0;
+    precision_mode = 2'b01;
+    acc_clear      = 0;
+    acc_enable     = 0;
+    operand_a      = 16'h0000;
+    operand_b      = 16'h0000;
 
-        #15 rst_n = 1;
-        #10;
+    // Hold reset across clock edges.
+    repeat (2) @(negedge clk);
+    rst_n = 1;
 
-        // --- Test 1: INT8 Accumulation ---
-        acc_enable = 1;
-        operand_a  = {8'sd5, 8'sd10};
-        operand_b  = {8'sd2, 8'sd3};
-        #10; // Accumulates: lane1 = 10, lane0 = 30
+    // ---------------------------------------
+    // Test 1: First INT8 accumulation
+    // ---------------------------------------
+    @(negedge clk);
+    acc_enable = 1;
+    operand_a  = {8'd5, 8'd10};
+    operand_b  = {8'd2, 8'd3};
 
-        operand_a  = {8'sd3, 8'sd4};
-        operand_b  = {8'sd2, 8'sd5};
-        #10; // Accumulates: lane1 += 6 (16), lane0 += 20 (50)
+    // Wait until the accumulator has sampled the operands.
+    @(posedge clk);
+    #1;
 
-        // --- Test 2: Zero-Bypass Trigger ---
-        operand_a  = 16'h0000; // Activation is zero!
-        operand_b  = {8'sd10, 8'sd10};
-        #10; // accum_out should freeze, zero_skip_count should increment to 1
+    if (accum_out !== 32'h000A001E)
+        $fatal(1,
+            "INT8 test 1 failed: got %h, expected 000A001E",
+            accum_out);
+    else
+        $display("PASS: INT8 accumulation test 1");
 
-        // --- Test 3: Clear Accumulator ---
-        acc_clear = 1;
-        #10;
-        acc_clear = 0;
-        #10;
+    // ---------------------------------------
+    // Test 2: Second INT8 accumulation
+    // ---------------------------------------
+    @(negedge clk);
+    operand_a = {8'd3, 8'd4};
+    operand_b = {8'd2, 8'd5};
 
-        $display("DAY 2 VERIFICATION COMPLETE! zero_skips = %d, accum_out = %h", zero_skip_count, accum_out);
-        $finish;
-    end
+    @(posedge clk);
+    #1;
 
+    if (accum_out !== 32'h00100032)
+        $fatal(1,
+            "INT8 test 2 failed: got %h, expected 00100032",
+            accum_out);
+    else
+        $display("PASS: INT8 accumulation test 2");
+
+    // Stop accumulation before the next operation.
+    @(negedge clk);
+    acc_enable = 0;
+
+    $display("INT8 arithmetic checks passed.");
+    $finish;
+end
 endmodule

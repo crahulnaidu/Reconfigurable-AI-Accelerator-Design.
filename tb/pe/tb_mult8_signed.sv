@@ -1,74 +1,91 @@
+`timescale 1ns/1ps
+
 module tb_mult8_signed;
 
-   // Use 'logic' instead of reg/wire for SystemVerilog compliance
-   logic signed [7:0] a_in;
-   logic signed [7:0] b_in;
-   logic signed [15:0] c_out;
-   
-   // Variable to hold the expected calculation for automated checks
-   logic signed [15:0] expected_c;
+    logic signed [7:0]  a_in;
+    logic signed [7:0]  b_in;
+    logic signed [15:0] c_out;
 
-   // Instantiate the Design Under Test (DUT)
-   mult8_sig uut (
-      .a_in(a_in),
-      .b_in(b_in),
-      .c_out(c_out)
-   );
+    logic signed [15:0] expected_c;
 
-   initial begin
-      $display("=== Starting 8-bit Signed Multiplier Verification ===");
+    integer tests_run;
+    integer failures;
+    integer i;
 
-      // ---------------------------------------------------------
-      // 1. Manual Edge Cases
-      // ---------------------------------------------------------
-      
-      // Case A: Positive x Positive (7 * 3)
-      a_in = 8'sd7;
-      b_in = 8'sd3;
-      #10;
-      expected_c = a_in * b_in;
-      assert (c_out === expected_c) 
-         else $error("Edge Case 1 Failed: %0d * %0d = %0d (Expected: %0d)", a_in, b_in, c_out, expected_c);
+    mult8_sig uut (
+        .a_in(a_in),
+        .b_in(b_in),
+        .c_out(c_out)
+    );
 
-      // Case B: Negative x Positive (-125 * 2)
-      a_in = -8'sd125;
-      b_in = 8'sd2;
-      #10;
-      expected_c = a_in * b_in;
-      assert (c_out === expected_c) 
-         else $error("Edge Case 2 Failed: %0d * %0d = %0d (Expected: %0d)", a_in, b_in, c_out, expected_c);
+    task automatic check_result(
+        input logic signed [7:0]  a,
+        input logic signed [7:0]  b
+    );
+        begin
+            a_in = a;
+            b_in = b;
 
-      // Case C: Minimum Negative x 1 (-128 * 1)
-      a_in = -8'sd128;
-      b_in = 8'sd1;
-      #10;
-      expected_c = a_in * b_in;
-      assert (c_out === expected_c) 
-         else $error("Edge Case 3 Failed: %0d * %0d = %0d (Expected: %0d)", a_in, b_in, c_out, expected_c);
+            #1;
 
-      // ---------------------------------------------------------
-      // 2. Automated Loop with 100 Random Signed Values
-      // ---------------------------------------------------------
-      $display("=== Running 100 Random Test Cases ===");
-      
-      for (int i = 0; i < 100; i++) begin
-         // $urandom_range generates random numbers within the 8-bit signed range (-128 to 127)
-         a_in = $urandom_range(-128, 127);
-         b_in = $urandom_range(-128, 127);
-         #10;
-         
-         // Calculate gold standard expected output behaviorally
-         expected_c = a_in * b_in;
-         
-         // Explicit SystemVerilog Assertion Check
-         assert (c_out === expected_c) else begin
-            $error("Random Test Mismatch at iteration %0d: %0d * %0d = %0d (Expected: %0d)", 
-                   i, a_in, b_in, c_out, expected_c);
-         end
-      end
+            expected_c = a * b;
+            tests_run = tests_run + 1;
 
-      $display("=== Test Completed Successfully with No Errors ===");
-      $finish;
-   end
+            if (c_out !== expected_c) begin
+                failures = failures + 1;
+
+                $display(
+                    "FAIL: a=%0d b=%0d actual=%0d expected=%0d",
+                    a_in, b_in, c_out, expected_c
+                );
+            end
+        end
+    endtask
+
+    initial begin
+        tests_run = 0;
+        failures  = 0;
+
+        $display("=== Signed 8-bit Multiplier Verification ===");
+
+        // Directed tests: boundary values and sign combinations.
+        check_result( 8'sd0,    8'sd0);
+        check_result( 8'sd1,    8'sd1);
+        check_result( 8'sd7,    8'sd3);
+        check_result(-8'sd125,  8'sd2);
+        check_result(-8'sd128,  8'sd1);
+        check_result(-8'sd128, -8'sd1);
+        check_result(-8'sd128, -8'sd128);
+        check_result(-8'sd128,  8'sd127);
+        check_result( 8'sd127,  8'sd127);
+        check_result( 8'sd127, -8'sd128);
+
+        // Exhaustively test every possible value of a against
+        // representative boundary and sign-sensitive values of b.
+        for (i = -128; i <= 127; i = i + 1) begin
+            check_result(i,  8'sd0);
+            check_result(i,  8'sd1);
+            check_result(i, -8'sd1);
+            check_result(i,  8'sd127);
+            check_result(i, -8'sd128);
+        end
+
+        // Random signed bit patterns.
+        for (i = 0; i < 1000; i = i + 1) begin
+            check_result($signed($urandom), $signed($urandom));
+        end
+
+        $display("Tests run: %0d", tests_run);
+        $display("Failures : %0d", failures);
+
+        if (failures == 0) begin
+            $display("PASS: All multiplier comparisons matched.");
+            $finish;
+        end
+        else begin
+            $display("FAIL: Multiplier verification failed.");
+            $fatal(1, "Found %0d failing comparisons.", failures);
+        end
+    end
 
 endmodule
