@@ -198,6 +198,46 @@ module tb_pe_multiplier;
             32'h0000_4200
         );
 
+                // Test 9: FP16 negative one times positive one
+        // -1.0 * 1.0 = -1.0
+        check_result(
+            "FP16 negative one times one",
+            2'b00,
+            16'hBC00,
+            16'h3C00,
+            32'h0000_BC00
+        );
+
+        // Test 10: FP16 0.5 times 0.5
+        // 0.5 * 0.5 = 0.25
+        check_result(
+            "FP16 half times half",
+            2'b00,
+            16'h3800,
+            16'h3800,
+            32'h0000_3400
+        );
+
+        // Test 11: FP16 2.0 times 2.0
+        // 2.0 * 2.0 = 4.0
+        check_result(
+            "FP16 two times two",
+            2'b00,
+            16'h4000,
+            16'h4000,
+            32'h0000_4400
+        );
+
+        // Test 12: FP16 zero times one
+        // Expected IEEE-754 result = positive zero
+        check_result(
+            "FP16 zero times one",
+            2'b00,
+            16'h0000,
+            16'h3C00,
+            32'h0000_0000
+        );
+
         // --------------------------------------------------
         // Final summary
         // --------------------------------------------------
