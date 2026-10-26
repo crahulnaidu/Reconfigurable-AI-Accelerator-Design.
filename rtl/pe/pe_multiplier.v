@@ -45,11 +45,13 @@ module pe_multiplier (
     wire [10:0] fp16_man_b  = {1'b1, operand_b[9:0]}; // Implicit leading 1
 
     wire        fp16_sign_out = fp16_sign_a ^ fp16_sign_b;
-    wire [5:0]  fp16_exp_sum  = fp16_exp_a + fp16_exp_b - 6'd15; // Subtract Bias (15)
-    wire [21:0] fp16_man_prod = fp16_man_a * fp16_man_b;
+    wire [5:0] fp16_exp_sum =fp16_exp_a + fp16_exp_b - 6'd15;
+    wire [21:0] fp16_man_prod =fp16_man_a * fp16_man_b;
+    wire fp16_normalize = fp16_man_prod[21];
+    wire [5:0] fp16_exp_normalized =fp16_exp_sum + fp16_normalize;
+    wire [9:0] fp16_man_normalized =fp16_normalize? fp16_man_prod[20:11]: fp16_man_prod[19:10];
+    wire [15:0] fp16_result = {fp16_sign_out,fp16_exp_normalized[4:0],fp16_man_normalized};
 
-    // Pack into standard 16-bit FP16 representation
-    wire [15:0] fp16_result = {fp16_sign_out, fp16_exp_sum[4:0], fp16_man_prod[20:11]};
 
     // =========================================================================
     // 4. Output Multiplexing Based on Active Layer Precision Mode
