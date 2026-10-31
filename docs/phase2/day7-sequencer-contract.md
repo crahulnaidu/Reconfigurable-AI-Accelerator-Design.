@@ -11,7 +11,7 @@ This FSM orchestrates descriptor loading, per-layer computation, confidence eval
 - `descriptor_valid` / `config_error` / `descriptor_error_code`: stable descriptor result associated with `descriptor_done`.
 - `layer_start`: one-cycle pulse to launch the complete layer/tile pipeline.
 - `compute_done`: asserts only after all output tiles and post-processing for this layer are complete. AGU completion alone is not sufficient.
-- `confidence_eval_start`: pulse on launch of a descriptor whose `cfg_flags[4]` marks an exit head and global early exit is enabled.
+- `confidence_eval_start`: pulse on launch of a descriptor whose `cfg_flags[3]` marks an exit head and global early exit is enabled.
 - `confidence_done`: must be held high with a stable `early_exit_trigger` until consumed by the FSM; future integration should make this a proper valid/ready or sticky-clear handshake.
 - `output_write_start`: one-cycle pulse to launch output DMA/writeback.
 - `writeback_done`: indicates all required output writes completed with successful AXI responses.
@@ -25,7 +25,7 @@ Any descriptor rejection routes to `ERROR` before `layer_start`. `engine_error` 
 
 ## Descriptor flags and pointer rules
 
-- `cfg_flags[4]` means EXIT_HEAD for descriptor version 1.
+- `cfg_flags[3]` means EXIT_HEAD for descriptor version 1.
 - `next_descriptor_ptr != 0` selects the next sequential descriptor after successful writeback.
 - If confidence completes and early exit is enabled and triggered, a nonzero `exit_descriptor_ptr` is selected after writeback. If the exit pointer is zero, inference completes at that exit head.
 - A zero next pointer without an accepted early exit means inference completes normally.

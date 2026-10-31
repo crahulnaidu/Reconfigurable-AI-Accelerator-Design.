@@ -6,7 +6,7 @@
 // This is intentionally named sequencer_fsm_v2 so the legacy top-level module
 // is not broken before control_unit_top is migrated in the integration step.
 //
-// cfg_flags[4] is interpreted as EXIT_HEAD in descriptor version 1.
+// cfg_flags[3] is EXIT_HEAD in descriptor version 1; cfg_flags[4] is ReLU.
 // descriptor_done is a one-cycle completion pulse from descriptor_engine;
 // descriptor_valid/config_error/error_code must describe that completed frame.
 // compute_done means *all tiles and post-processing for the layer are complete*.
@@ -65,7 +65,7 @@ module sequencer_fsm_v2 (
 
     localparam [7:0] ERR_ENGINE            = 8'hE0;
     localparam [7:0] ERR_INVALID_DESCRIPTOR = 8'hE1;
-    localparam integer EXIT_HEAD_BIT = 4;
+    localparam integer EXIT_HEAD_BIT = 3; // Descriptor CFG bit 3; bit 4 is ReLU.
 
     reg [3:0] state;
     reg [63:0] current_next_ptr;

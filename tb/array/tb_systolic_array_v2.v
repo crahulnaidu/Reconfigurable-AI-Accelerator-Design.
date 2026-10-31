@@ -3,7 +3,7 @@ module tb_systolic_array_v2;
     localparam integer K8 = 3;
     localparam integer K4 = 2;
 
-    reg clk, rst_n, advance, acc_clear, acc_enable;
+    reg clk, rst_n, advance, acc_clear, acc_enable, zero_bypass_enable;
     reg [1:0] precision_mode;
     reg [15:0] act_row_in [0:3];
     reg [3:0] act_row_valid, act_row_last;
@@ -12,6 +12,7 @@ module tb_systolic_array_v2;
     wire [127:0] pe_accum_out [0:3][0:3];
     wire [15:0] pe_result_valid;
     wire tile_done, config_error, protocol_error, accum_overflow;
+    wire [31:0] zero_skip_count;
 
     reg signed [7:0] A0 [0:3][0:2];
     reg signed [7:0] A1 [0:3][0:2];
@@ -25,12 +26,13 @@ module tb_systolic_array_v2;
     systolic_array_v2 dut (
         .clk(clk), .rst_n(rst_n), .advance(advance),
         .acc_clear(acc_clear), .acc_enable(acc_enable),
-        .precision_mode(precision_mode),
+        .precision_mode(precision_mode), .zero_bypass_enable(zero_bypass_enable),
         .act_row_in(act_row_in), .act_row_valid(act_row_valid), .act_row_last(act_row_last),
         .weight_col_in(weight_col_in), .weight_col_valid(weight_col_valid), .weight_col_last(weight_col_last),
         .pe_accum_out(pe_accum_out), .pe_result_valid(pe_result_valid),
         .tile_done(tile_done), .config_error(config_error),
-        .protocol_error(protocol_error), .accum_overflow(accum_overflow)
+        .protocol_error(protocol_error), .accum_overflow(accum_overflow),
+        .zero_skip_count(zero_skip_count)
     );
 
     always #5 clk = ~clk;
@@ -198,8 +200,122 @@ module tb_systolic_array_v2;
         end
     endtask
 
+    task automatic test_zero_bypass_tile;
+        reg signed [7:0] a_lane0 [0:3];
+        reg signed [7:0] a_lane1 [0:3];
+        reg signed [7:0] b_lane0 [0:3];
+        reg signed [7:0] b_lane1 [0:3];
+        begin
+            clear_tile(2'b01);
+            @(negedge clk); zero_bypass_enable=1'b1;
+            a_lane0[0]=1;  a_lane1[0]=0;
+            a_lane0[1]=0;  a_lane1[1]=0;
+            a_lane0[2]=3;  a_lane1[2]=2;
+            a_lane0[3]=5;  a_lane1[3]=4;
+            b_lane0[0]=1;  b_lane1[0]=0;
+            b_lane0[1]=0;  b_lane1[1]=0;
+            b_lane0[2]=2;  b_lane1[2]=3;
+            b_lane0[3]=1;  b_lane1[3]=1;
+
+            // One K token per row/column, externally skewed to align at each PE.
+            for (t=0; t<7; t=t+1) begin
+                @(negedge clk);
+                act_row_valid=0; act_row_last=0;
+                weight_col_valid=0; weight_col_last=0;
+                for (r=0; r<4; r=r+1) begin
+                    act_row_in[r]=16'd0;
+                    if (t==r) begin
+                        act_row_in[r]={a_lane1[r],a_lane0[r]};
+                        act_row_valid[r]=1'b1;
+                        act_row_last[r]=1'b1;
+                    end
+                end
+                for (c=0; c<4; c=c+1) begin
+                    weight_col_in[c]=16'd0;
+                    if (t==c) begin
+                        weight_col_in[c]={b_lane1[c],b_lane0[c]};
+                        weight_col_valid[c]=1'b1;
+                        weight_col_last[c]=1'b1;
+                    end
+                end
+                @(posedge clk); #1;
+            end
+            repeat(3) drive_idle_cycle();
+            if (!tile_done || protocol_error || accum_overflow)
+                $fatal(1,"zero-bypass tile completion/protocol/overflow failure");
+            if (zero_skip_count !== 32'd19)
+                $fatal(1,"zero-skip count expected 19 got %0d",zero_skip_count);
+            for (r=0; r<4; r=r+1) begin
+                for (c=0; c<4; c=c+1) begin
+                    if ($signed(pe_accum_out[r][c][31:0]) !== (a_lane0[r]*b_lane0[c]))
+                        $fatal(1,"zero-bypass INT8 lane0 mismatch PE[%0d][%0d]",r,c);
+                    if ($signed(pe_accum_out[r][c][63:32]) !== (a_lane1[r]*b_lane1[c]))
+                        $fatal(1,"zero-bypass INT8 lane1 mismatch PE[%0d][%0d]",r,c);
+                end
+            end
+            checks=checks+1;
+            $display("PASS: per-lane zero bypass preserves products and counts 19 skipped lane-products");
+            @(negedge clk); zero_bypass_enable=1'b0;
+        end
+    endtask
+
+    task automatic test_zero_bypass_int4_tile;
+        reg [15:0] a_vec [0:3];
+        reg [15:0] b_vec [0:3];
+        integer av0, av1, av2, av3, bv0, bv1, bv2, bv3;
+        begin
+            clear_tile(2'b10);
+            @(negedge clk); zero_bypass_enable=1'b1;
+            a_vec[0]=16'h1001; a_vec[1]=16'h0000;
+            a_vec[2]=16'h5432; a_vec[3]=16'h1111;
+            b_vec[0]=16'h1001; b_vec[1]=16'h0000;
+            b_vec[2]=16'h5432; b_vec[3]=16'h1111;
+            for (t=0; t<7; t=t+1) begin
+                @(negedge clk);
+                act_row_valid=0; act_row_last=0;
+                weight_col_valid=0; weight_col_last=0;
+                for (r=0; r<4; r=r+1) begin
+                    act_row_in[r]=16'd0;
+                    if (t==r) begin
+                        act_row_in[r]=a_vec[r];
+                        act_row_valid[r]=1'b1; act_row_last[r]=1'b1;
+                    end
+                end
+                for (c=0; c<4; c=c+1) begin
+                    weight_col_in[c]=16'd0;
+                    if (t==c) begin
+                        weight_col_in[c]=b_vec[c];
+                        weight_col_valid[c]=1'b1; weight_col_last[c]=1'b1;
+                    end
+                end
+                @(posedge clk); #1;
+            end
+            repeat(3) drive_idle_cycle();
+            if (!tile_done || protocol_error || accum_overflow)
+                $fatal(1,"INT4 zero-bypass tile completion/protocol/overflow failure");
+            if (zero_skip_count !== 32'd38)
+                $fatal(1,"INT4 zero-skip count expected 38 got %0d",zero_skip_count);
+            for (r=0; r<4; r=r+1) begin
+                for (c=0; c<4; c=c+1) begin
+                    av0=$signed(a_vec[r][3:0]); av1=$signed(a_vec[r][7:4]);
+                    av2=$signed(a_vec[r][11:8]); av3=$signed(a_vec[r][15:12]);
+                    bv0=$signed(b_vec[c][3:0]); bv1=$signed(b_vec[c][7:4]);
+                    bv2=$signed(b_vec[c][11:8]); bv3=$signed(b_vec[c][15:12]);
+                    if ($signed(pe_accum_out[r][c][31:0]) !== av0*bv0 ||
+                        $signed(pe_accum_out[r][c][63:32]) !== av1*bv1 ||
+                        $signed(pe_accum_out[r][c][95:64]) !== av2*bv2 ||
+                        $signed(pe_accum_out[r][c][127:96]) !== av3*bv3)
+                        $fatal(1,"INT4 zero-bypass lane mismatch PE[%0d][%0d]",r,c);
+                end
+            end
+            checks=checks+1;
+            $display("PASS: INT4 per-lane zero bypass preserves all products and counts 38 skipped lane-products");
+            @(negedge clk); zero_bypass_enable=1'b0;
+        end
+    endtask
+
     initial begin
-        clk=0; rst_n=0; advance=1; acc_clear=0; acc_enable=0; precision_mode=2'b01;
+        clk=0; rst_n=0; advance=1; acc_clear=0; acc_enable=0; zero_bypass_enable=0; precision_mode=2'b01;
         act_row_valid=0; act_row_last=0; weight_col_valid=0; weight_col_last=0; checks=0;
         for (r=0; r<4; r=r+1) begin
             for (k=0; k<3; k=k+1) begin A0[r][k]=0; A1[r][k]=0; end
@@ -239,6 +355,8 @@ module tb_systolic_array_v2;
         test_global_stall();
         run_int8_tile();
         run_int4_tile();
+        test_zero_bypass_tile();
+        test_zero_bypass_int4_tile();
 
         $display("\nSYSTOLIC ARRAY V2 SUMMARY");
         $display("Checks run: %0d", checks);

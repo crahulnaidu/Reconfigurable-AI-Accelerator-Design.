@@ -183,12 +183,24 @@ module tb_sequencer_fsm_v2;
         check(inference_complete && !busy && !error,
               "terminal layer completes inference after writeback");
 
+        // ReLU is descriptor CFG bit 4; it must not be mistaken for EXIT_HEAD.
+        pulse_start(64'h0000_0000_0000_2800);
+        send_descriptor_result(1'b1, 1'b0, 8'h00,
+                               64'd0, 64'd0, 6'b010000);
+        check(layer_start && !confidence_eval_start,
+              "ReLU descriptor flag does not start confidence evaluation");
+        @(posedge clk); #1;
+        finish_compute();
+        finish_writeback();
+        check(inference_complete && !early_exit_occurred && !error,
+              "ReLU-flag terminal layer completes without taking early exit");
+
         // Scenario 2: early-exit branch to a nonzero EXIT_DESC.
         pulse_start(64'h0000_0000_0000_3000);
         send_descriptor_result(1'b1, 1'b0, 8'h00,
                                64'h0000_0000_0000_4000,
                                64'h0000_0000_0000_9000,
-                               6'b010000); // cfg_flags[4] = EXIT_HEAD
+                               6'b001000); // cfg_flags[3] = EXIT_HEAD per descriptor v1
         check(layer_start && confidence_eval_start,
               "eligible exit-head starts confidence evaluation");
         @(posedge clk); #1; // ST_WAIT_COMP
